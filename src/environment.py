@@ -1,139 +1,182 @@
 import numpy as np
 import random
-import copy
+from typing import Tuple
 
-from typing import Union
+class Game2048:
+    def __init__(self, size: int = 4):
+        """
+        Initialize the 2048 game environment.
 
-class Board:
-    def __init__(self, board_size: int = 4, seed: int = None) -> None:
-        self.board_size = board_size
-        self.board = np.zeros((self.board_size, self.board_size), dtype=int)
-        # add initial values to start the game
+        :param size: The size of the game board (size x size).
+        """
+        self.size = size
+        self.board = np.zeros((size, size), dtype=int)
+        self.score = 0
+        self.action_space = [0, 1, 2, 3]
+        self.reset() # Set initial state of the game board
+
+    def reset(self) -> np.ndarray:
+        """
+        Reset the game board to the initial state.
+
+        :return: The initial state of the game board.
+        """
+        self.board = np.zeros((self.size, self.size), dtype=int)
         self.add_new_tile()
         self.add_new_tile()
+        self.score = 0
+        return self.board
 
     def add_new_tile(self) -> None:
-        empty_cells = [(r, c) for r in range(self.board_size) for c in range(self.board_size) if self.board[r][c] == 0]
+        """
+        Add a new tile (2 or 4) to a random empty spot on the board.
+        """
+        empty_cells = [(r, c) for r in range(self.size) for c in range(self.size) if self.board[r][c] == 0]
         if empty_cells:
             r, c = random.choice(empty_cells)
             self.board[r][c] = 4 if random.random() > 0.9 else 2
 
-    def clone(self):
-        """Return a deep copy of the board."""
-        new_board = Board(self.board_size)
-        new_board.board = copy.deepcopy(self.board)
-        return new_board
+    def is_game_over(self) -> bool:
+        """
+        Check if the game is over (no moves possible).
 
-    def is_full(self):
-        """Check if the board has no empty cells."""
-        return not any(0 in row for row in self.board)
+        :return: True if the game is over, False otherwise.
+        """
+        for i in range(self.size):
+            for j in range(self.size):
+                if self.board[i][j] == 0:
+                    return False
+                if i < self.size - 1 and self.board[i][j] == self.board[i + 1][j]:
+                    return False
+                if j < self.size - 1 and self.board[i][j] == self.board[i][j + 1]:
+                    return False
+        return True
 
-    def __str__(self) -> str:
-        return "\n".join(str(row) for row in self.board)
+    def get_state(self) -> np.ndarray:
+        """
+        Get the current state of the game board.
+
+        :return: The current game board state.
+        """
+        return self.board
+
+    def render(self) -> None:
+        """
+        Print the current game board.
+        """
+        print('\n'.join(str(row) for row in self.board))
+
+    def step(self, action: int) -> Tuple[np.ndarray, int, bool]:
+        """
+        Apply an action to the game board.
+
+        :param action: The action to take (0: left, 1: right, 2: up, 3: down).
+        :param movement: The movement object to apply the move logic.
+        :return: A tuple containing the new board state, the reward from the action, and a boolean indicating if the game is over.
+        """
+        self.movement = Movement(self)
+        initial_board = self.board.copy()
+        if action == 0:
+            self.movement.move_left()
+        elif action == 1:
+            self.movement.move_right()
+        elif action == 2:
+            self.movement.move_up()
+        elif action == 3:
+            self.movement.move_down()
+
+        done = self.is_game_over()
+        reward = self.score if not np.array_equal(initial_board, self.board) else 0
+
+        if done:
+            reward -= 1000  # Penalty for losing the game
+
+        return self.board, reward, done, False, {}
     
 
 class Movement:
-    def __init__(self, board: Board):
-        self.board = board
-        self.score = 0
+    def __init__(self, board: Game2048):
+        """
+        Initialize the movement logic for the 2048 game.
 
-    def compress(self, row: list) -> list:
+        :param board: The game board object to interact with.
+        """
+        self.board = board
+
+    def compress(self, row: np.ndarray) -> np.ndarray:
+        """
+        Compress the row by sliding all non-zero elements to the left.
+
+        :param row: The row to compress.
+        :return: The compressed row.
+        """
         new_row = [num for num in row if num != 0]
         new_row += [0] * (len(row) - len(new_row))
-        return new_row
+        return np.array(new_row)
 
-    def merge(self, row: list) -> list:
+    def merge(self, row: np.ndarray) -> np.ndarray:
+        """
+        Merge adjacent cells in the row if they have the same value.
+
+        :param row: The row to merge.
+        :return: The row after merging.
+        """
         for i in range(len(row) - 1):
             if row[i] == row[i + 1] and row[i] != 0:
                 row[i] *= 2
-                self.score += row[i]  # Add the merged value to the score
+                self.board.score += row[i]
                 row[i + 1] = 0
         return row
 
-    def ensure_int(self):
-        self.board.board = [[int(num) for num in row] for row in self.board.board]
+    def reverse(self, row: np.ndarray) -> np.ndarray:
+        """
+        Reverse the elements in a row.
 
-    def move_left(self):
-        self.score = 0  # Reset the score for the current move
-        new_board = []
-        for row in self.board.board:
-            compressed_row = self.compress(row)
-            merged_row = self.merge(compressed_row)
-            final_row = self.compress(merged_row)
-            new_board.append(final_row)
-        self.board.board = new_board
-        self.ensure_int()
+        :param row: The row to reverse.
+        :return: The reversed row.
+        """
+        return row[::-1]
 
-    def move_right(self):
-        self.score = 0  # Reset the score for the current move
-        new_board = []
-        for row in self.board.board:
-            reversed_row = self.reverse(row)
-            compressed_row = self.compress(reversed_row)
-            merged_row = self.merge(compressed_row)
-            final_row = self.reverse(self.compress(merged_row))
-            new_board.append(final_row)
-        self.board.board = new_board
-        self.ensure_int()
+    def transpose(self) -> None:
+        """
+        Transpose the game board (swap rows with columns).
+        """
+        self.board.board = self.board.board.T
 
-    def move_up(self):
-        self.score = 0  # Reset the score for the current move
+    def move_left(self) -> None:
+        """
+        Move all tiles on the board to the left.
+        """
+        for i in range(self.board.size):
+            self.board.board[i] = self.compress(self.board.board[i])
+            self.board.board[i] = self.merge(self.board.board[i])
+            self.board.board[i] = self.compress(self.board.board[i])
+        self.board.add_new_tile()
+
+    def move_right(self) -> None:
+        """
+        Move all tiles on the board to the right.
+        """
+        for i in range(self.board.size):
+            self.board.board[i] = self.reverse(self.board.board[i])
+            self.board.board[i] = self.compress(self.board.board[i])
+            self.board.board[i] = self.merge(self.board.board[i])
+            self.board.board[i] = self.compress(self.board.board[i])
+            self.board.board[i] = self.reverse(self.board.board[i])
+        self.board.add_new_tile()
+
+    def move_up(self) -> None:
+        """
+        Move all tiles on the board up.
+        """
         self.transpose()
         self.move_left()
         self.transpose()
 
-    def move_down(self):
-        self.score = 0  # Reset the score for the current move
+    def move_down(self) -> None:
+        """
+        Move all tiles on the board down.
+        """
         self.transpose()
         self.move_right()
         self.transpose()
-
-    def reverse(self, row: list) -> list:
-        """ Reverse the row """
-        return row[::-1]
-
-    def transpose(self):
-        self.board.board = [list(row) for row in zip(*self.board.board)]
-
-    def move(self, direction: int) -> Union[int, ValueError]:
-        """Apply a move in the given direction (0: left, 1: right, 2: up, 3: down)."""
-        if direction == 0:
-            self.move_left()
-        elif direction == 1:
-            self.move_right()
-        elif direction == 2:
-            self.move_up()
-        elif direction == 3:
-            self.move_down()
-        else:
-            raise ValueError("Invalid direction")
-
-        if not self.board.is_full():
-            self.board.add_new_tile()
-
-        return self.score  # Return the score obtained from this move
-
-
-
-if __name__ == '__main__':
-    board = Board()
-    movement = Movement(board)
-
-    print(board)
-
-    # Simulate some moves
-    print("left")
-    movement.move_left()
-    print(board)
-
-    print("right")
-    movement.move_right()
-    print(board)
-
-    print("up")
-    movement.move_up()
-    print(board)
-
-    print("down")
-    movement.move_down()
-    print(board)
